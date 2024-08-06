@@ -1,14 +1,25 @@
 import streamlit as st
 import pandas as pd
+from PIL import Image
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
+import plotly.express as px 
+import requests
+import numpy as np
+from io import BytesIO
 
 # Title of the Streamlit app
 st.set_page_config(page_title = 'RFM Analysis Application', page_icon=':bar_chart:')
 st.title('Customer Segmentation using RFM Analysis')
 
+# Function to load image from URL and convert to Matplotlib compatible format
+def load_image_from_url(url):
+    response = requests.get(url)
+    img = Image.open(BytesIO(response.content))
+    return np.array(img)
+    
 # File uploader
 uploaded_file = st.file_uploader("Choose an Excel file", type="xlsx")
 
@@ -19,6 +30,7 @@ if uploaded_file is not None:
 
     # Data Preprocessing
     df['customer_data'] = df['customer_data'].fillna('null name')
+    df['account_id'] = df['account_id'].astype(str)
 
     # Display total amount spent
     total_amount_spent = df['amount/100'].sum()
@@ -94,7 +106,7 @@ if uploaded_file is not None:
 
     # Display Scaled clusters based on frequency and monetary with background image
     background_image_path = "https://github.com/andri0301/RFMAnalysis/blob/main/rfmtable.png"
-    background_image = plt.imread(background_image_path)
+    background_image = load_image_from_url(background_image_url)
 
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.imshow(background_image, extent=[0, 5, 0, 5], aspect='auto', alpha=0.4)
@@ -169,6 +181,21 @@ if uploaded_file is not None:
         # Display the segment statistics in a table without the index
         st.table(segment_stats)
 
+        fig = px.pie(segment_stats, names='Segment', values='Count',
+                 hover_data=['Percentage', 'Average Frequency', 'Average Monetary(Spending)'],
+                 title='Customer Segments Distribution')
+        fig.update_traces(
+        textposition='inside', 
+        textinfo='percent+label', 
+        hovertemplate=(
+            '<b>%{label}</b><br>'
+            'Count: %{value}<br>'
+            'Percentage: %{customdata[0]}<br>'
+        ),
+        customdata=segment_stats[['Percentage']].values
+    )
+        st.plotly_chart(fig)
+
     # Multiselect button to show account IDs based on segments
     selected_segments = st.multiselect('Show account IDs based on segments', segments.keys())
 
@@ -185,3 +212,28 @@ if uploaded_file is not None:
         # If no segments are selected, display this message
         if not any(segment_ids for segment in selected_segments):
             st.markdown(f"There are no accounts in the selected segments.")
+
+    # Text input to search for an account ID
+    st.subheader('Search for Customer Details')
+    search_account_id = st.text_input('Enter account ID')
+
+    if search_account_id:
+        # Check if the account ID exists in the dataset
+        if search_account_id in df['account_id'].values:
+            # Extract the customer data
+            customer_data = df[df['account_id'] == search_account_id]
+            total_spending = customer_data['amount/100'].sum()
+            frequency = customer_data.shape[0]
+            purchase_details = customer_data[['insert_dtime', 'amount/100']].to_dict('records')
+            customer_name = customer_data['customer_data'].values[0]
+
+            st.write(f"Account ID: {search_account_id}")
+            st.write(f"Name: {customer_name}")
+            st.write(f"Total Spending: Rp{total_spending}")
+            st.write(f"Frequency: {frequency} times")
+
+            st.write("Date of Purchase and Amount per Purchase:")
+            for purchase in purchase_details:
+                st.write(f"- Date: {purchase['insert_dtime']}, Amount: Rp{purchase['amount/100']}")
+        else:
+            st.write("Account ID not found in the dataset.")
